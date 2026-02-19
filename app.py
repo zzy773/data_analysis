@@ -22,6 +22,7 @@ if st.sidebar.button("开始回测"):
     
     with st.spinner('正在从 AKShare 获取 A 股前复权数据，请稍候...'):
         start_dt = datetime.strptime(start_date_input, "%Y%m%d")
+        # 往前推 10 天，解决第一天收益计算为空的问题
         fetch_start_dt = start_dt - timedelta(days=10)
         fetch_start_str = fetch_start_dt.strftime("%Y%m%d")
         
@@ -46,6 +47,7 @@ if st.sidebar.button("开始回测"):
             st.error("未获取到足够的数据进行回测，请检查日期或代码。")
             st.stop()
 
+        # 计算每日收益，并截取用户真正想要的日期段
         daily_returns = close_prices.pct_change().dropna()
         target_start_date = pd.to_datetime(start_date_input)
         daily_returns = daily_returns[daily_returns.index >= target_start_date]
@@ -54,6 +56,7 @@ if st.sidebar.button("开始回测"):
             st.error("截取指定日期段后无有效数据。")
             st.stop()
 
+        # 等权重组合计算
         portfolio_daily_return = daily_returns.mean(axis=1)
         cumulative_return = (1 + portfolio_daily_return).cumprod()
         running_max = cumulative_return.cummax()
@@ -108,19 +111,26 @@ if st.sidebar.button("开始回测"):
             row=3, col=1
         )
 
+        # 布局、背景与悬浮窗（半透明毛玻璃）样式设置
         fig.update_layout(
             height=700,
             margin=dict(l=20, r=20, t=30, b=20),
             hovermode="x unified",
             showlegend=False,
-            plot_bgcolor='rgba(0,0,0,0)'
+            plot_bgcolor='rgba(0,0,0,0)',
+            hoverlabel=dict(
+                bgcolor="rgba(255, 255, 255, 0.85)",  # 设置背景颜色为85%透明度的白色
+                bordercolor="#888",                   # 浅灰色边框
+                font_size=13,                         # 优化字体大小
+                align="left"                          # 文本左对齐
+            )
         )
         
-        # 【修改重点】：将横坐标和悬浮窗的时间格式升级为包含年份的完整中文格式
+        # 将横坐标和悬浮窗的时间格式升级为包含年份的完整中文格式
         fig.update_xaxes(
             rangebreaks=[dict(values=dt_breaks)], 
-            tickformat="%Y年%m月%d日",                # 底部的横坐标刻度显示为：2024年01月16日
-            hoverformat="%Y年%m月%d日",               # 手指按住滑动时，弹窗顶部显示为：2024年01月16日
+            tickformat="%Y年%m月%d日",                
+            hoverformat="%Y年%m月%d日",               
             showgrid=True, 
             gridwidth=1, 
             gridcolor='rgba(128,128,128,0.2)', 
@@ -132,6 +142,7 @@ if st.sidebar.button("开始回测"):
         # 将动态图表渲染到网页
         st.plotly_chart(fig, use_container_width=True)
 
+        # 底部数据明细表
         st.subheader("数据明细")
         result_df = pd.DataFrame({
             "每日收益率": portfolio_daily_return,
