@@ -59,13 +59,13 @@ if st.sidebar.button("开始回测"):
         running_max = cumulative_return.cummax()
         drawdown = (cumulative_return - running_max) / running_max
 
-        # --- 全新升级的 Plotly 交互式绘图逻辑 ---
+        # --- Plotly 交互式绘图逻辑 ---
         
-        # 【修改重点1】：找出所有非交易日（周末、节假日），用于告诉 Plotly 折叠隐藏它们
+        # 找出所有非交易日用于折叠隐藏
         dt_all = pd.date_range(start=cumulative_return.index.min(), end=cumulative_return.index.max())
         dt_breaks = dt_all.difference(cumulative_return.index).strftime('%Y-%m-%d').tolist()
         
-        # 提前计算好要在悬浮窗里显示的累积增长百分比
+        # 提前计算悬浮窗的百分比字符串
         hover_pct = [(y - 1) * 100 for y in cumulative_return]
         customdata_pct = [f"{'+' if p > 0 else ''}{p:.2f}%" for p in hover_pct]
 
@@ -73,7 +73,6 @@ if st.sidebar.button("开始回测"):
                             vertical_spacing=0.05, 
                             row_heights=[0.5, 0.25, 0.25])
 
-        # 【修改重点2】：X轴恢复使用原生的 datetime 索引
         x_dates = cumulative_return.index
 
         # 1. 累积净值图
@@ -117,11 +116,11 @@ if st.sidebar.button("开始回测"):
             plot_bgcolor='rgba(0,0,0,0)'
         )
         
-        # 【修改重点3】：统一设置 X 轴的折叠和中文时间格式
+        # 【修改重点】：将横坐标和悬浮窗的时间格式升级为包含年份的完整中文格式
         fig.update_xaxes(
-            rangebreaks=[dict(values=dt_breaks)], # 折叠隐藏所有非交易日
-            tickformat="%m月%d日",                # 底部的横坐标刻度显示为中文的“月日”
-            hoverformat="%m月%d日",               # 手指按住时，弹窗顶部标题显示为中文的“月日”
+            rangebreaks=[dict(values=dt_breaks)], 
+            tickformat="%Y年%m月%d日",                # 底部的横坐标刻度显示为：2024年01月16日
+            hoverformat="%Y年%m月%d日",               # 手指按住滑动时，弹窗顶部显示为：2024年01月16日
             showgrid=True, 
             gridwidth=1, 
             gridcolor='rgba(128,128,128,0.2)', 
