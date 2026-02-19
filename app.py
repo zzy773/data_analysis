@@ -1,9 +1,9 @@
 import streamlit as st
 import akshare as ak
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 from datetime import datetime, timedelta
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # Streamlit 页面配置
 st.set_page_config(page_title="A股组合回测系统", layout="wide")
@@ -15,14 +15,11 @@ start_date_input = st.sidebar.text_input("回测起始时间 (YYYYMMDD)", "20230
 end_date_input = st.sidebar.text_input("回测结束时间 (YYYYMMDD)", "20240101")
 tickers_input = st.sidebar.text_input("股票代码 (逗号分隔)", "002050,600118")
 
-# 当用户点击按钮时才执行计算
 if st.sidebar.button("开始回测"):
     
-    # 替换中文逗号并拆分
     tickers_input = tickers_input.replace('，', ',')
     tickers = [ticker.strip() for ticker in tickers_input.split(',')]
     
-    # 使用 st.spinner 在网页上显示加载动画
     with st.spinner('正在从 AKShare 获取 A 股前复权数据，请稍候...'):
         start_dt = datetime.strptime(start_date_input, "%Y%m%d")
         fetch_start_dt = start_dt - timedelta(days=10)
@@ -47,9 +44,8 @@ if st.sidebar.button("开始回测"):
         
         if close_prices.empty:
             st.error("未获取到足够的数据进行回测，请检查日期或代码。")
-            st.stop() # 停止后续代码运行
+            st.stop()
 
-        # 计算逻辑保持不变
         daily_returns = close_prices.pct_change().dropna()
         target_start_date = pd.to_datetime(start_date_input)
         daily_returns = daily_returns[daily_returns.index >= target_start_date]
@@ -63,48 +59,72 @@ if st.sidebar.button("开始回测"):
         running_max = cumulative_return.cummax()
         drawdown = (cumulative_return - running_max) / running_max
 
-        # --- 绘图逻辑 ---
-        # 注意：由于 Linux 服务器缺少 Windows 字体，图表中的中文可能会变成方块。
-        # 这里暂时使用基础英文标签，后续可升级为 Streamlit 原生图表解决此问题。
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 8), gridspec_kw={'height_ratios': [2, 1, 1]})
+        # --- 全新升级的 Plotly 交互式绘图逻辑 ---
         
-        x_data = range(len(cumulative_return))
-        date_labels = cumulative_return.index.strftime('%Y-%m-%d').tolist()
+        # 将日期转为字符串列表，强制设为离散坐标轴，彻底消除非交易日断层
+        date_strs = cumulative_return.index.strftime('%Y-%m-%d').tolist()
         
-        def format_date(x, pos=None):
-            idx = int(x)
-            if 0 <= idx < len(date_labels): return date_labels[idx]
-            return ""
+        # 提前计算好要在悬浮窗里显示的累积增长百分比
+        hover_pct = [(y - 1) * 100 for y in cumulative_return]
+        # 格式化为带有正负号的字符串，例如 "+5.20%" 或 "-1.50%"
+        customdata_pct = [f"{'+' if p > 0 else ''}{p:.2f}%" for p in hover_pct]
 
-        ax1.plot(x_data, cumulative_return, label='Cumulative Return', color='red', linewidth=1.5, marker='o', markersize=4)
-        ax1.set_ylabel('Net Value')
-        ax1.legend(loc='upper left')
+        # 创建包含 3 个子图的画布
+        fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
+                            vertical_spacing=0.05, 
+                            row_heights=[0.5, 0.25, 0.25])
+
+        # 1. 累积净值图 (Line)
+        fig.add_trace(
+            go.Scatter(
+                x=date_strs, y=cumulative_return, 
+                mode='lines', name='组合累积净值',
+                line=dict(color='#ff4b4b', width=2),
+                customdata=customdata_pct,
+                # %{customdata} 会调用我们上面准备好的百分比数据
+                hovertemplate='净值: %{y:.4f}<br>累计增长: %{customdata}<extra></extra>'
+            ),
+            row=1, col=1
+        )
+
+        # 2. 每日涨跌幅 (Bar)
+        fig.add_trace(
+            go.Bar(
+                x=date_strs, y=portfolio_daily_return, 
+                name='每日综合涨跌幅', marker_color='#3b82f6', opacity=0.8,
+                hovertemplate='涨跌幅: %{y:.2%}<extra></extra>'
+            ),
+            row=2, col=1
+        )
+
+        # 3. 动态回撤 (Area)
+        fig.add_trace(
+            go.Scatter(
+                x=date_strs, y=drawdown, 
+                mode='lines', name='最大回撤',
+                fill='tozeroy', fillcolor='rgba(34, 197, 94, 0.3)', line=dict(color='#22c55e'),
+                hovertemplate='回撤比例: %{y:.2%}<extra></extra>'
+            ),
+            row=3, col=1
+        )
+
+        # 统一设置图表布局与交互模式
+        fig.update_layout(
+            height=700,
+            margin=dict(l=20, r=20, t=30, b=20),
+            # hovermode="x unified" 是核心魔法：手指按在一个点上，纵向的三个图表会同时显示当天的对应数据！
+            hovermode="x unified",
+            showlegend=False,
+            plot_bgcolor='rgba(0,0,0,0)'
+        )
         
-        for x, y in zip(x_data, cumulative_return):
-            growth_pct = (y - 1) * 100 
-            sign = "+" if growth_pct > 0 else "" 
-            ax1.annotate(f"{sign}{growth_pct:.2f}%", (x, y), textcoords="offset points", xytext=(0, 8), ha='center', fontsize=8, color='darkred')
-        
-        ax2.bar(x_data, portfolio_daily_return, label='Daily Return', color='blue', alpha=0.6)
-        ax2.set_ylabel('Pct Change')
-        ax2.legend(loc='upper left')
-        
-        ax3.fill_between(x_data, drawdown, 0, label='Max Drawdown', color='green', alpha=0.4)
-        ax3.set_ylabel('Drawdown')
-        ax3.legend(loc='lower left')
-        
-        for ax in [ax1, ax2, ax3]:
-            ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-            ax.xaxis.set_major_formatter(ticker.FuncFormatter(format_date))
-            plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=8)
-            ax.grid(True, linestyle='--', alpha=0.6)
-        
-        plt.tight_layout()
-        
-        # 将 matplotlib 画好的图表输出到 Streamlit 网页上
-        st.pyplot(fig)
-        
-        # 顺便在网页底部输出一个数据明细表
+        # 优化坐标轴网格线
+        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)', tickangle=45)
+        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)')
+
+        # 将动态图表渲染到网页
+        st.plotly_chart(fig, use_container_width=True)
+
         st.subheader("数据明细")
         result_df = pd.DataFrame({
             "每日收益率": portfolio_daily_return,
