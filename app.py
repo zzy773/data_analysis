@@ -8,13 +8,17 @@ from plotly.subplots import make_subplots
 # Streamlit 页面配置
 st.set_page_config(page_title="A股组合回测系统", layout="wide")
 
-# --- 【新增：彻底解决手机滑动死锁的 CSS】 ---
+# --- 【深度修复：手机端滑动与交互死锁】 ---
 st.markdown(
     """
     <style>
-    /* 强制 Plotly 图表容器允许触摸滚动网页 */
+    /* 1. 允许手指在图表区域内垂直滑动网页，解决“粘手”问题 */
     .js-plotly-plot .plotly .main-svg {
         touch-action: pan-y !important;
+    }
+    /* 2. 移除图表遮罩层对指针事件的过度拦截 */
+    .nsegrid, .draglayer {
+        pointer-events: all !important;
     }
     </style>
     """,
@@ -23,7 +27,7 @@ st.markdown(
 
 st.title("📈 A股组合等权重回测系统")
 
-# --- 侧边栏输入区域 ---
+# --- 侧边栏参数 ---
 st.sidebar.header("参数设置")
 start_date_input = st.sidebar.text_input("回测起始时间 (YYYYMMDD)", "20230101")
 end_date_input = st.sidebar.text_input("回测结束时间 (YYYYMMDD)", "20240101")
@@ -63,7 +67,7 @@ if st.sidebar.button("开始回测"):
         running_max = cumulative_return.cummax()
         drawdown = (cumulative_return - running_max) / running_max
 
-        # --- 绘图逻辑 ---
+        # --- 绘图逻辑优化 ---
         dt_all = pd.date_range(start=cumulative_return.index.min(), end=cumulative_return.index.max())
         dt_breaks = dt_all.difference(cumulative_return.index).strftime('%Y-%m-%d').tolist()
         
@@ -76,39 +80,64 @@ if st.sidebar.button("开始回测"):
 
         x_dates = cumulative_return.index
 
-        fig.add_trace(go.Scatter(x=x_dates, y=cumulative_return, mode='lines', name='组合累积净值', line=dict(color='#ff4b4b', width=2),
-                                 customdata=customdata_pct, hovertemplate='净值: %{y:.4f}<br>累计增长: %{customdata}<extra></extra>'), row=1, col=1)
+        # 增加提示线 (Spikelines) 以增强滑动时的视觉反馈
+        fig.add_trace(go.Scatter(
+            x=x_dates, y=cumulative_return, 
+            mode='lines', name='净值', 
+            line=dict(color='#ff4b4b', width=2),
+            customdata=customdata_pct, 
+            hovertemplate='净值: %{y:.4f}<br>累计增长: %{customdata}<extra></extra>',
+            showlegend=False
+        ), row=1, col=1)
 
-        fig.add_trace(go.Bar(x=x_dates, y=portfolio_daily_return, name='每日综合涨跌幅', marker_color='#3b82f6', opacity=0.8,
-                             hovertemplate='涨跌幅: %{y:.2%}<extra></extra>'), row=2, col=1)
+        fig.add_trace(go.Bar(
+            x=x_dates, y=portfolio_daily_return, 
+            name='涨跌', marker_color='#3b82f6', opacity=0.8,
+            hovertemplate='涨跌幅: %{y:.2%}<extra></extra>'
+        ), row=2, col=1)
 
-        fig.add_trace(go.Scatter(x=x_dates, y=drawdown, mode='lines', name='最大回撤', fill='tozeroy', 
-                                 fillcolor='rgba(34, 197, 94, 0.3)', line=dict(color='#22c55e'),
-                                 hovertemplate='回撤比例: %{y:.2%}<extra></extra>'), row=3, col=1)
+        fig.add_trace(go.Scatter(
+            x=x_dates, y=drawdown, 
+            mode='lines', name='回撤', 
+            fill='tozeroy', fillcolor='rgba(34, 197, 94, 0.3)', line=dict(color='#22c55e'),
+            hovertemplate='回撤比例: %{y:.2%}<extra></extra>'
+        ), row=3, col=1)
 
         fig.update_layout(
             height=700,
             margin=dict(l=10, r=10, t=30, b=20),
-            hovermode="x unified",
-            showlegend=False,
-            plot_bgcolor='rgba(0,0,0,0)',
-            dragmode=False, # 禁止拖拽，配合 CSS 允许上下滑动网页
+            hovermode="x", # 切换为更适合移动端的 x 轴捕获
+            dragmode=False,
             hoverlabel=dict(
-                bgcolor="rgba(255, 255, 255, 0.85)", 
+                bgcolor="rgba(255, 255, 255, 0.9)", 
                 bordercolor="#888",                   
                 font=dict(color="#000000", size=13),
                 align="left"                          
             )
         )
         
-        fig.update_xaxes(rangebreaks=[dict(values=dt_breaks)], tickformat="%Y年%m月%d日", hoverformat="%Y年%m月%d日", 
-                         showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)', tickangle=45)
+        # 针对手机端优化坐标轴设置
+        fig.update_xaxes(
+            rangebreaks=[dict(values=dt_breaks)], 
+            tickformat="%Y年%m月%d日", 
+            hoverformat="%Y年%m月%d日", 
+            showgrid=True, gridcolor='rgba(128,128,128,0.2)', tickangle=45,
+            showspikes=True, # 开启提示竖线
+            spikemode='across', 
+            spikesnap='cursor',
+            spikethickness=1,
+            spikedash='dash'
+        )
         
-        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)')
+        fig.update_yaxes(showgrid=True, gridcolor='rgba(128,128,128,0.2)', fixedrange=True)
 
-        # 将动态图表渲染到网页
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+        # 核心：通过 config 参数注入移动端特定配置
+        st.plotly_chart(fig, use_container_width=True, config={
+            'displayModeBar': False,
+            'scrollZoom': False, # 禁用滚动缩放，让位给页面滚动
+            'responsive': True
+        })
 
         st.subheader("数据明细")
-        result_df = pd.DataFrame({"每日收益率": portfolio_daily_return, "累积净值": cumulative_return, "动态回撤": drawdown})
+        result_df = pd.DataFrame({"收益率": portfolio_daily_return, "净值": cumulative_return, "回撤": drawdown})
         st.dataframe(result_df.style.format("{:.2%}"))
