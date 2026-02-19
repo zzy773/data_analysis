@@ -61,46 +61,47 @@ if st.sidebar.button("开始回测"):
 
         # --- 全新升级的 Plotly 交互式绘图逻辑 ---
         
-        # 将日期转为字符串列表，强制设为离散坐标轴，彻底消除非交易日断层
-        date_strs = cumulative_return.index.strftime('%Y-%m-%d').tolist()
+        # 【修改重点1】：找出所有非交易日（周末、节假日），用于告诉 Plotly 折叠隐藏它们
+        dt_all = pd.date_range(start=cumulative_return.index.min(), end=cumulative_return.index.max())
+        dt_breaks = dt_all.difference(cumulative_return.index).strftime('%Y-%m-%d').tolist()
         
         # 提前计算好要在悬浮窗里显示的累积增长百分比
         hover_pct = [(y - 1) * 100 for y in cumulative_return]
-        # 格式化为带有正负号的字符串，例如 "+5.20%" 或 "-1.50%"
         customdata_pct = [f"{'+' if p > 0 else ''}{p:.2f}%" for p in hover_pct]
 
-        # 创建包含 3 个子图的画布
         fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                             vertical_spacing=0.05, 
                             row_heights=[0.5, 0.25, 0.25])
 
-        # 1. 累积净值图 (Line)
+        # 【修改重点2】：X轴恢复使用原生的 datetime 索引
+        x_dates = cumulative_return.index
+
+        # 1. 累积净值图
         fig.add_trace(
             go.Scatter(
-                x=date_strs, y=cumulative_return, 
+                x=x_dates, y=cumulative_return, 
                 mode='lines', name='组合累积净值',
                 line=dict(color='#ff4b4b', width=2),
                 customdata=customdata_pct,
-                # %{customdata} 会调用我们上面准备好的百分比数据
                 hovertemplate='净值: %{y:.4f}<br>累计增长: %{customdata}<extra></extra>'
             ),
             row=1, col=1
         )
 
-        # 2. 每日涨跌幅 (Bar)
+        # 2. 每日涨跌幅
         fig.add_trace(
             go.Bar(
-                x=date_strs, y=portfolio_daily_return, 
+                x=x_dates, y=portfolio_daily_return, 
                 name='每日综合涨跌幅', marker_color='#3b82f6', opacity=0.8,
                 hovertemplate='涨跌幅: %{y:.2%}<extra></extra>'
             ),
             row=2, col=1
         )
 
-        # 3. 动态回撤 (Area)
+        # 3. 动态回撤
         fig.add_trace(
             go.Scatter(
-                x=date_strs, y=drawdown, 
+                x=x_dates, y=drawdown, 
                 mode='lines', name='最大回撤',
                 fill='tozeroy', fillcolor='rgba(34, 197, 94, 0.3)', line=dict(color='#22c55e'),
                 hovertemplate='回撤比例: %{y:.2%}<extra></extra>'
@@ -108,18 +109,25 @@ if st.sidebar.button("开始回测"):
             row=3, col=1
         )
 
-        # 统一设置图表布局与交互模式
         fig.update_layout(
             height=700,
             margin=dict(l=20, r=20, t=30, b=20),
-            # hovermode="x unified" 是核心魔法：手指按在一个点上，纵向的三个图表会同时显示当天的对应数据！
             hovermode="x unified",
             showlegend=False,
             plot_bgcolor='rgba(0,0,0,0)'
         )
         
-        # 优化坐标轴网格线
-        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)', tickangle=45)
+        # 【修改重点3】：统一设置 X 轴的折叠和中文时间格式
+        fig.update_xaxes(
+            rangebreaks=[dict(values=dt_breaks)], # 折叠隐藏所有非交易日
+            tickformat="%m月%d日",                # 底部的横坐标刻度显示为中文的“月日”
+            hoverformat="%m月%d日",               # 手指按住时，弹窗顶部标题显示为中文的“月日”
+            showgrid=True, 
+            gridwidth=1, 
+            gridcolor='rgba(128,128,128,0.2)', 
+            tickangle=45
+        )
+        
         fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)')
 
         # 将动态图表渲染到网页
