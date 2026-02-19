@@ -126,7 +126,7 @@ if st.sidebar.button("开始回测"):
             )
         )
         
-        # 将横坐标和悬浮窗的时间格式升级为包含年份的完整中文格式
+        # 【修改重点】：在 X 轴和 Y 轴中添加 fixedrange=True 锁定缩放
         fig.update_xaxes(
             rangebreaks=[dict(values=dt_breaks)], 
             tickformat="%Y年%m月%d日",                
@@ -134,13 +134,20 @@ if st.sidebar.button("开始回测"):
             showgrid=True, 
             gridwidth=1, 
             gridcolor='rgba(128,128,128,0.2)', 
-            tickangle=45
+            tickangle=45,
+            fixedrange=True   # <--- 锁定 X 轴缩放和平移
         )
         
-        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)')
+        fig.update_yaxes(
+            showgrid=True, 
+            gridwidth=1, 
+            gridcolor='rgba(128,128,128,0.2)',
+            fixedrange=True   # <--- 锁定 Y 轴缩放和平移
+        )
 
         # 将动态图表渲染到网页
-        st.plotly_chart(fig, use_container_width=True)
+        # 同时通过 config 隐藏掉图表右上角自带的工具栏（如套索、放大镜工具），让界面更纯净
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
         # 底部数据明细表
         st.subheader("数据明细")
